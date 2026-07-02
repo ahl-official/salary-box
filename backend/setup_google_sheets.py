@@ -19,6 +19,7 @@ from models.sheets import (
     get_spreadsheet,
     init_sheets,
 )
+from utils.sheet_layout import organize_spreadsheet
 
 BACKEND_DIR = Path(__file__).resolve().parent
 CREDS_FILE = BACKEND_DIR / "service_account.json"
@@ -116,12 +117,31 @@ def migrate_local_data() -> int:
     return 0
 
 
+def organize_only() -> int:
+    if _using_local_store():
+        print("Google Sheets credentials not configured.")
+        return 1
+    try:
+        ss = get_spreadsheet()
+        init_sheets()
+        organize_spreadsheet(ss, SHEET_HEADERS)
+        print("Spreadsheet organized: README tab, headers formatted, tabs ordered.")
+        print(SHEET_URL.format(id=_resolve_spreadsheet_id()))
+        return 0
+    except Exception as exc:
+        print(f"Organize failed: {exc}")
+        return 1
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--migrate", action="store_true", help="Upload local_data.json to Google Sheets")
+    parser.add_argument("--organize", action="store_true", help="Format tabs and add README guide")
     args = parser.parse_args()
     if args.migrate:
         return migrate_local_data()
+    if args.organize:
+        return organize_only()
     return check_connection()
 
 

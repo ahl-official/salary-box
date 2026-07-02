@@ -390,6 +390,19 @@ def init_sheets():
     else:
         print(f"Attendance data initialized successfully using {store}.")
 
+    if not _using_local_store():
+        try:
+            from utils.sheet_layout import SHEETS_LAYOUT_VERSION, organize_spreadsheet
+            settings_rows = get_sheet("settings").get_all_records()
+            layout_version = next(
+                (r.get("value") for r in settings_rows if r.get("key") == "sheets_layout_version"),
+                None,
+            )
+            if layout_version != SHEETS_LAYOUT_VERSION:
+                organize_spreadsheet(ss, SHEET_HEADERS)
+        except Exception as exc:
+            print(f"Sheet layout organize skipped: {exc}")
+
 
 # ---------------------------------------------------------------------------
 # Generic CRUD helpers

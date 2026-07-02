@@ -259,7 +259,7 @@ def _using_local_store() -> bool:
     return not _resolve_creds_raw() or not _resolve_spreadsheet_id()
 
 
-def _get_credentials() -> Credentials:
+def _load_creds_info() -> dict:
     raw = _resolve_creds_raw()
     if not raw:
         raise RuntimeError(
@@ -267,26 +267,39 @@ def _get_credentials() -> Credentials:
             "Place service_account.json in the backend/ folder "
             "or set GOOGLE_SHEETS_CREDS_JSON."
         )
-    # Accept either a file path or raw JSON string
-    if raw.strip().startswith("{"):
-        info = json.loads(raw)
-    else:
-        with open(raw) as f:
-            info = json.load(f)
+    if not raw.strip().startswith("{"):
+        with open(raw, encoding="utf-8") as f:
+            return json.load(f)
+
+    text = raw.strip()
+    if (text.startswith("'") and text.endswith("'")) or (text.startswith('"') and text.endswith('"')):
+        text = text[1:-1].strip()
+
+    attempts = [
+        text,
+        text.replace("\r\n", "\n"),
+        "".join(line.strip() for line in text.splitlines()),
+    ]
+    last_error = None
+    for candidate in attempts:
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+    raise RuntimeError(
+        "GOOGLE_SHEETS_CREDS_JSON is invalid JSON. "
+        "In Vercel, paste the entire service_account.json as one single line."
+    ) from last_error
+
+
+def _get_credentials() -> Credentials:
+    info = _load_creds_info()
     return Credentials.from_service_account_info(info, scopes=SCOPES)
 
 
 def _service_account_email() -> Optional[str]:
-    raw = _resolve_creds_raw()
-    if not raw:
-        return None
     try:
-        if raw.strip().startswith("{"):
-            info = json.loads(raw)
-        else:
-            with open(raw, encoding="utf-8") as f:
-                info = json.load(f)
-        return info.get("client_email")
+        return _load_creds_info().get("client_email")
     except Exception:
         return None
 

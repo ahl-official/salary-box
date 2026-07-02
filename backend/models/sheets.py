@@ -19,6 +19,7 @@ Setup:
 
 import os
 import json
+import shutil
 import threading
 import re
 from pathlib import Path
@@ -92,7 +93,24 @@ _client_lock = threading.Lock()
 _local_lock = threading.RLock()
 _gc: Optional[gspread.Client] = None
 _spreadsheet = None
-LOCAL_DB_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "local_data.json")
+_BUNDLED_LOCAL_DB = _BACKEND_DIR / "local_data.json"
+
+
+def _resolve_local_db_path() -> str:
+    if os.environ.get("VERCEL"):
+        return "/tmp/attendance_local_data.json"
+    return str(_BUNDLED_LOCAL_DB)
+
+
+LOCAL_DB_PATH = _resolve_local_db_path()
+
+
+def _ensure_local_db_seeded():
+    """Vercel's filesystem is read-only except /tmp — copy bundled seed data once."""
+    if os.path.exists(LOCAL_DB_PATH):
+        return
+    if _BUNDLED_LOCAL_DB.exists():
+        shutil.copy(_BUNDLED_LOCAL_DB, LOCAL_DB_PATH)
 
 
 class LocalWorksheet:
@@ -100,12 +118,14 @@ class LocalWorksheet:
         self.title = title
 
     def _read_db(self) -> dict:
+        _ensure_local_db_seeded()
         if not os.path.exists(LOCAL_DB_PATH):
             return {}
         with open(LOCAL_DB_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def _write_db(self, db: dict):
+        _ensure_local_db_seeded()
         with open(LOCAL_DB_PATH, "w", encoding="utf-8") as f:
             json.dump(db, f, indent=2)
 
@@ -202,12 +222,14 @@ class LocalSpreadsheet:
         return LocalWorksheet(title)
 
     def _read_db(self) -> dict:
+        _ensure_local_db_seeded()
         if not os.path.exists(LOCAL_DB_PATH):
             return {}
         with open(LOCAL_DB_PATH, "r", encoding="utf-8") as f:
             return json.load(f)
 
     def _write_db(self, db: dict):
+        _ensure_local_db_seeded()
         with open(LOCAL_DB_PATH, "w", encoding="utf-8") as f:
             json.dump(db, f, indent=2)
 
@@ -287,6 +309,8 @@ def get_datastore_info() -> dict:
 
 def init_sheets():
     """Called at startup — ensures all tabs + default data exist."""
+    if _using_local_store():
+        _ensure_local_db_seeded()
     ss = get_spreadsheet()
     existing = {ws.title for ws in ss.worksheets()}
 

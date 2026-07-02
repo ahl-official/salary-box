@@ -1,4 +1,6 @@
-const BASE = import.meta.env.VITE_API_URL || 'http://localhost:8000/api'
+const BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:8000/api' : '/api')
 
 function getToken() {
   return localStorage.getItem('token')
@@ -13,6 +15,8 @@ async function request(method, path, body) {
     method,
     headers,
     body: body ? JSON.stringify(body) : undefined
+  }).catch(() => {
+    throw new Error('Cannot reach server. Check your internet connection and try again.')
   })
 
   if (res.status === 204) return null

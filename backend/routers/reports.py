@@ -13,7 +13,10 @@ from utils.holiday_utils import holiday_on_date
 from utils.auth import get_current_user, require_admin
 
 router = APIRouter()
-REPORTS_DIR = "generated_reports"
+REPORTS_DIR = os.environ.get(
+    "REPORT_OUTPUT_DIR",
+    "/tmp/generated_reports" if os.environ.get("VERCEL") else "generated_reports",
+)
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
 class ReportRequest(BaseModel):

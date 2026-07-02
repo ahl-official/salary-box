@@ -276,6 +276,21 @@ def _get_credentials() -> Credentials:
     return Credentials.from_service_account_info(info, scopes=SCOPES)
 
 
+def _service_account_email() -> Optional[str]:
+    raw = _resolve_creds_raw()
+    if not raw:
+        return None
+    try:
+        if raw.strip().startswith("{"):
+            info = json.loads(raw)
+        else:
+            with open(raw, encoding="utf-8") as f:
+                info = json.load(f)
+        return info.get("client_email")
+    except Exception:
+        return None
+
+
 def get_spreadsheet():
     global _gc, _spreadsheet
     with _client_lock:
@@ -293,12 +308,13 @@ def get_spreadsheet():
             _spreadsheet = _gc.open_by_key(spreadsheet_id)
             return _spreadsheet
         except Exception as exc:
-            if os.environ.get("VERCEL"):
-                print(f"Google Sheets unavailable on Vercel, using local store: {exc}")
-                _ensure_local_db_seeded()
-                _spreadsheet = LocalSpreadsheet()
-                return _spreadsheet
-            raise
+            email = _service_account_email() or "your service account email"
+            sheet_id = _resolve_spreadsheet_id()
+            raise RuntimeError(
+                f"Cannot open Google Sheet {sheet_id}. "
+                f"Open the sheet → Share → add {email} with Editor access. "
+                f"Details: {exc}"
+            ) from exc
 
 
 def get_sheet(tab_name: str) -> gspread.Worksheet:
@@ -313,11 +329,25 @@ def get_sheet(tab_name: str) -> gspread.Worksheet:
 
 def get_datastore_info() -> dict:
     using_local = _using_local_store()
-    return {
+    info = {
         "type": "local_json" if using_local else "google_sheets",
         "spreadsheet_id": None if using_local else _resolve_spreadsheet_id(),
         "creds_configured": bool(_resolve_creds_raw()),
+        "service_account_email": _service_account_email(),
     }
+    if using_local:
+        return info
+    try:
+        ss = get_spreadsheet()
+        info["spreadsheet_title"] = ss.title
+        info["tabs"] = [ws.title for ws in ss.worksheets()]
+        if isinstance(ss, LocalSpreadsheet):
+            info["type"] = "local_json"
+            info["warning"] = "Credentials are set but Google Sheets is not connected."
+    except Exception as exc:
+        info["connection_error"] = str(exc)
+        info["type"] = "disconnected"
+    return info
 
 
 def init_sheets():

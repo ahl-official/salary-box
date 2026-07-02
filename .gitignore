@@ -1,6 +1,7 @@
 # Secrets & env
 backend/service_account.json
 backend/.env
+backend/VERCEL_ENV_SETUP.txt
 frontend/.env
 frontend/.env.local
 .env

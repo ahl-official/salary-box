@@ -239,6 +239,11 @@ def _resolve_creds_raw() -> str:
     if raw:
         if raw.startswith("{"):
             return raw
+        path = Path(raw)
+        if not path.is_absolute():
+            path = _BACKEND_DIR / path
+        if path.exists():
+            return str(path)
         if os.path.exists(raw):
             return raw
     if DEFAULT_CREDS_FILE.exists():

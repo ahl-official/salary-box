@@ -37,9 +37,12 @@ app.include_router(holidays.router,   prefix="/api/holidays",   tags=["holidays"
 @app.get("/api/health")
 def health():
     s = SettingsSheet.get_all()
+    info = get_datastore_info()
+    sheet_id = info.get("spreadsheet_id")
     return {
         "status": "ok",
         "timestamp": now_iso(s),
         "timezone": s.get("timezone", "Asia/Kolkata"),
-        **get_datastore_info(),
+        **info,
+        "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else None,
     }

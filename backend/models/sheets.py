@@ -252,8 +252,11 @@ def _resolve_creds_raw() -> str:
     if b64:
         try:
             return _decode_creds_b64(b64)
-        except Exception:
-            return ""
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_SHEETS_CREDS_B64 is invalid. "
+                "Delete GOOGLE_SHEETS_CREDS_JSON, re-paste the full Base64 line, and redeploy."
+            ) from exc
 
     raw = os.environ.get("GOOGLE_SHEETS_CREDS_JSON", "").strip()
     if raw:
@@ -308,7 +311,7 @@ def _load_creds_info() -> dict:
             last_error = exc
     raise RuntimeError(
         "GOOGLE_SHEETS_CREDS_JSON is invalid JSON. "
-        "In Vercel, paste the entire service_account.json as one single line."
+        "Delete it on Vercel and use GOOGLE_SHEETS_CREDS_B64 instead."
     ) from last_error
 
 

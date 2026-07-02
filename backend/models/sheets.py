@@ -279,13 +279,21 @@ def get_spreadsheet():
         if _using_local_store():
             _spreadsheet = LocalSpreadsheet()
             return _spreadsheet
-        creds = _get_credentials()
-        _gc = gspread.authorize(creds)
-        spreadsheet_id = _resolve_spreadsheet_id()
-        if not spreadsheet_id:
-            raise RuntimeError("GOOGLE_SPREADSHEET_ID not set.")
-        _spreadsheet = _gc.open_by_key(spreadsheet_id)
-        return _spreadsheet
+        try:
+            creds = _get_credentials()
+            _gc = gspread.authorize(creds)
+            spreadsheet_id = _resolve_spreadsheet_id()
+            if not spreadsheet_id:
+                raise RuntimeError("GOOGLE_SPREADSHEET_ID not set.")
+            _spreadsheet = _gc.open_by_key(spreadsheet_id)
+            return _spreadsheet
+        except Exception as exc:
+            if os.environ.get("VERCEL"):
+                print(f"Google Sheets unavailable on Vercel, using local store: {exc}")
+                _ensure_local_db_seeded()
+                _spreadsheet = LocalSpreadsheet()
+                return _spreadsheet
+            raise
 
 
 def get_sheet(tab_name: str) -> gspread.Worksheet:

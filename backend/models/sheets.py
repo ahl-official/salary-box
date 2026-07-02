@@ -235,16 +235,25 @@ class LocalSpreadsheet:
             json.dump(db, f, indent=2)
 
 
+def _decode_creds_b64(b64: str) -> str:
+    cleaned = "".join(b64.split())
+    if cleaned.startswith('"') and cleaned.endswith('"'):
+        cleaned = cleaned[1:-1]
+    if cleaned.startswith("'") and cleaned.endswith("'"):
+        cleaned = cleaned[1:-1]
+    padding = (-len(cleaned)) % 4
+    if padding:
+        cleaned += "=" * padding
+    return base64.b64decode(cleaned).decode("utf-8")
+
+
 def _resolve_creds_raw() -> str:
     b64 = os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip()
     if b64:
         try:
-            return base64.b64decode(b64).decode("utf-8")
-        except Exception as exc:
-            raise RuntimeError(
-                "GOOGLE_SHEETS_CREDS_B64 is invalid. "
-                "Run: python print_creds_oneline.py --base64"
-            ) from exc
+            return _decode_creds_b64(b64)
+        except Exception:
+            return ""
 
     raw = os.environ.get("GOOGLE_SHEETS_CREDS_JSON", "").strip()
     if raw:
@@ -369,6 +378,13 @@ def get_datastore_info() -> dict:
         ),
         "service_account_email": None,
     }
+    if os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip() and not _resolve_creds_raw():
+        info["connection_error"] = (
+            "GOOGLE_SHEETS_CREDS_B64 is invalid. "
+            "Re-paste the full single line in Vercel with no quotes or line breaks."
+        )
+        info["type"] = "disconnected"
+        return info
     try:
         info["service_account_email"] = _service_account_email()
     except Exception:

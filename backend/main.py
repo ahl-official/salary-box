@@ -58,6 +58,15 @@ def health():
         "setup_hint": (
             f"Share your spreadsheet with {info.get('service_account_email')} as Editor"
             if info.get("connection_error") and info.get("service_account_email")
-            else None
+            else (
+                "Fix Vercel env: delete GOOGLE_SHEETS_CREDS_JSON and set "
+                "GOOGLE_SHEETS_CREDS_B64 instead (run print_creds_oneline.py --base64)"
+                if info.get("connection_error") and "invalid JSON" in str(info.get("connection_error", ""))
+                else (
+                    "Set GOOGLE_SHEETS_CREDS_B64 or a valid one-line GOOGLE_SHEETS_CREDS_JSON on Vercel"
+                    if info.get("connection_error")
+                    else None
+                )
+            )
         ),
     }

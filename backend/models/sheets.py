@@ -20,6 +20,7 @@ Setup:
 import os
 import json
 import shutil
+import base64
 import threading
 import re
 from pathlib import Path
@@ -235,6 +236,16 @@ class LocalSpreadsheet:
 
 
 def _resolve_creds_raw() -> str:
+    b64 = os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip()
+    if b64:
+        try:
+            return base64.b64decode(b64).decode("utf-8")
+        except Exception as exc:
+            raise RuntimeError(
+                "GOOGLE_SHEETS_CREDS_B64 is invalid. "
+                "Run: python print_creds_oneline.py --base64"
+            ) from exc
+
     raw = os.environ.get("GOOGLE_SHEETS_CREDS_JSON", "").strip()
     if raw:
         if raw.startswith("{"):
@@ -345,9 +356,23 @@ def get_datastore_info() -> dict:
     info = {
         "type": "local_json" if using_local else "google_sheets",
         "spreadsheet_id": None if using_local else _resolve_spreadsheet_id(),
-        "creds_configured": bool(_resolve_creds_raw()),
-        "service_account_email": _service_account_email(),
+        "creds_configured": bool(
+            os.environ.get("GOOGLE_SHEETS_CREDS_JSON", "").strip()
+            or os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip()
+            or DEFAULT_CREDS_FILE.exists()
+        ),
+        "creds_format": (
+            "base64" if os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip()
+            else "json" if os.environ.get("GOOGLE_SHEETS_CREDS_JSON", "").strip()
+            else "file" if DEFAULT_CREDS_FILE.exists()
+            else None
+        ),
+        "service_account_email": None,
     }
+    try:
+        info["service_account_email"] = _service_account_email()
+    except Exception:
+        pass
     if using_local:
         return info
     try:

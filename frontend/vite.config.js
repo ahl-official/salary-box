@@ -38,6 +38,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        navigateFallbackDenylist: [/^\/api/],
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/tile\.openstreetmap\.org\/.*/i,
@@ -46,15 +47,6 @@ export default defineConfig({
               cacheName: 'osm-tiles',
               expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] }
-            }
-          },
-          {
-            urlPattern: ({ url }) => url.pathname.startsWith('/api/') || /\/api\//.test(url.href),
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'api-cache',
-              expiration: { maxEntries: 50, maxAgeSeconds: 60 },
-              networkTimeoutSeconds: 10
             }
           }
         ]

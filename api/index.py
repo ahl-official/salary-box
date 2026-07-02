@@ -7,8 +7,4 @@ from pathlib import Path
 BACKEND = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(BACKEND))
 
-from models.sheets import init_sheets
-
-init_sheets()
-
 from main import app  # noqa: E402

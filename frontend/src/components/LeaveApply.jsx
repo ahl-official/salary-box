@@ -93,18 +93,17 @@ export default function LeaveApply() {
   }
 
   return (
-    <div className="card mt-16" style={{ padding: 16 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: open ? 16 : 0 }}>
-        <div>
-          <p style={{ fontWeight: 700, fontSize: 15 }}>Apply for Leave</p>
-          <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+    <div className="card mt-16 leave-apply-card">
+      <div className="leave-apply-header" style={{ marginBottom: open ? 16 : 0 }}>
+        <div className="leave-apply-header-text">
+          <p className="leave-apply-title">Apply for Leave</p>
+          <p className="leave-apply-subtitle">
             Single day or multiple dates · sent to HR for approval
           </p>
         </div>
         <button
           type="button"
-          className="btn btn-secondary"
-          style={{ padding: '8px 14px', fontSize: 13 }}
+          className="btn btn-secondary leave-apply-toggle-btn"
           onClick={() => setOpen((v) => !v)}
         >
           {open ? 'Close' : 'Apply'}
@@ -113,23 +112,13 @@ export default function LeaveApply() {
 
       {open && (
         <form onSubmit={handleSubmit} className="fade-in">
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+          <div className="leave-type-row">
             {['single', 'multiple'].map((type) => (
               <button
                 key={type}
                 type="button"
                 onClick={() => setLeaveType(type)}
-                style={{
-                  flex: 1,
-                  padding: '10px 12px',
-                  borderRadius: 10,
-                  border: leaveType === type ? '2px solid var(--accent)' : '1px solid var(--border)',
-                  background: leaveType === type ? 'rgba(0,200,150,0.1)' : 'var(--card2)',
-                  color: leaveType === type ? 'var(--accent)' : 'var(--text-secondary)',
-                  fontWeight: 600,
-                  fontSize: 13,
-                  cursor: 'pointer',
-                }}
+                className={`leave-type-btn ${leaveType === type ? 'active' : 'inactive'}`}
               >
                 {type === 'single' ? 'Single day' : 'Multiple days'}
               </button>
@@ -152,29 +141,20 @@ export default function LeaveApply() {
             <div style={{ marginBottom: 12 }}>
               <label className="input-label" style={{ display: 'block', marginBottom: 8 }}>Leave dates</label>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {multiDates.map((row, idx) => (
-                  <div key={row.id} style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {multiDates.map((row) => (
+                  <div key={row.id} className="leave-date-row">
                     <input
                       className="input-field"
                       type="date"
                       min={minDate}
                       value={row.value}
                       onChange={(e) => updateDateRow(row.id, e.target.value)}
-                      style={{ flex: 1 }}
-                      placeholder={`Date ${idx + 1}`}
                     />
                     {multiDates.length > 2 && (
                       <button
                         type="button"
+                        className="leave-remove-btn"
                         onClick={() => removeDateRow(row.id)}
-                        style={{
-                          background: 'none',
-                          border: 'none',
-                          color: 'var(--accent-red)',
-                          fontSize: 20,
-                          padding: '0 8px',
-                          cursor: 'pointer',
-                        }}
                         aria-label="Remove date"
                       >
                         ×
@@ -183,20 +163,7 @@ export default function LeaveApply() {
                   </div>
                 ))}
               </div>
-              <button
-                type="button"
-                onClick={addDateRow}
-                style={{
-                  marginTop: 8,
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--accent)',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
+              <button type="button" className="leave-add-date-btn" onClick={addDateRow}>
                 + Add another date
               </button>
             </div>
@@ -214,7 +181,7 @@ export default function LeaveApply() {
             />
           </div>
 
-          <button type="submit" className="btn btn-primary" disabled={submitting} style={{ width: '100%' }}>
+          <button type="submit" className="btn btn-primary" disabled={submitting}>
             {submitting ? <div className="spinner" style={{ borderTopColor: '#000' }} /> : 'Submit leave request'}
           </button>
         </form>
@@ -235,38 +202,23 @@ export default function LeaveApply() {
             {leaves.map((leave) => {
               const st = STATUS_STYLE[leave.status] || STATUS_STYLE.pending
               return (
-                <div
-                  key={leave.id}
-                  style={{
-                    padding: 12,
-                    borderRadius: 10,
-                    background: 'var(--card2)',
-                    border: '1px solid var(--border)',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div>
-                      <p style={{ fontWeight: 600, fontSize: 14 }}>{formatDates(leave)}</p>
+                <div key={leave.id} className="leave-request-item">
+                  <div className="leave-request-top">
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <p className="leave-request-dates">{formatDates(leave)}</p>
                       <p style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
                         {leave.leave_type === 'single' ? 'Single day' : `${leave.date_count} days`} · {leave.created_at?.slice(0, 10)}
                       </p>
                     </div>
                     <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 700,
-                        padding: '4px 8px',
-                        borderRadius: 6,
-                        background: st.bg,
-                        color: st.color,
-                        whiteSpace: 'nowrap',
-                      }}
+                      className="leave-status-badge"
+                      style={{ background: st.bg, color: st.color }}
                     >
                       {st.label}
                     </span>
                   </div>
                   {leave.reason && (
-                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8 }}>{leave.reason}</p>
+                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 8, wordBreak: 'break-word' }}>{leave.reason}</p>
                   )}
                 </div>
               )

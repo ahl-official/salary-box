@@ -710,3 +710,201 @@ input:checked + .slider::before {
   transform: translateX(20px);
   background: var(--accent);
 }
+
+/* Mobile scalability */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+input[type="date"],
+input[type="tel"],
+input[type="number"],
+textarea.input-field {
+  font-size: 16px;
+}
+
+.btn,
+.nav-item,
+.cal-day,
+.leave-type-btn {
+  touch-action: manipulation;
+}
+
+.leave-apply-card {
+  padding: 16px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.leave-apply-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.leave-apply-header-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.leave-apply-title {
+  font-weight: 700;
+  font-size: clamp(14px, 4vw, 15px);
+}
+
+.leave-apply-subtitle {
+  font-size: clamp(11px, 3.2vw, 12px);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+  word-wrap: break-word;
+}
+
+.leave-apply-toggle-btn {
+  flex-shrink: 0;
+  padding: 10px 16px;
+  font-size: 13px;
+  min-height: 44px;
+  width: auto;
+}
+
+.leave-type-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.leave-type-btn {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  padding: 10px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: clamp(12px, 3.5vw, 13px);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.leave-type-btn.active {
+  border: 2px solid var(--accent);
+  background: rgba(0, 200, 150, 0.1);
+  color: var(--accent);
+}
+
+.leave-type-btn.inactive {
+  border: 1px solid var(--border);
+  background: var(--card2);
+  color: var(--text-secondary);
+}
+
+.leave-date-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.leave-date-row .input-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.leave-remove-btn {
+  flex-shrink: 0;
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--accent-red);
+  font-size: 22px;
+  cursor: pointer;
+}
+
+.leave-add-date-btn {
+  margin-top: 8px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 8px 0;
+  min-height: 44px;
+}
+
+.leave-request-item {
+  padding: 12px;
+  border-radius: 10px;
+  background: var(--card2);
+  border: 1px solid var(--border);
+  max-width: 100%;
+}
+
+.leave-request-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.leave-request-dates {
+  font-weight: 600;
+  font-size: clamp(13px, 3.8vw, 14px);
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.leave-status-badge {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+}
+
+@media (max-width: 360px) {
+  .screen-content {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .summary-tile {
+    min-width: 72px;
+    padding: 10px 10px;
+  }
+
+  .summary-tile .count {
+    font-size: 18px;
+  }
+
+  .cal-day {
+    font-size: 11px;
+    border-radius: 6px;
+  }
+
+  .leave-apply-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .leave-apply-toggle-btn {
+    width: 100%;
+  }
+}
+
+@media (min-width: 480px) {
+  .screen-content {
+    max-width: 480px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}

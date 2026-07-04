@@ -64,6 +64,7 @@ SHEET_HEADERS = {
     "departments": ["id", "name"],
     "notes":       ["id", "content", "posted_by", "date", "created_at"],
     "holidays":    ["id", "name", "month", "date", "scope", "emp_ids", "created_at", "created_by"],
+    "leave_requests": ["id", "emp_id", "emp_name", "branch", "leave_type", "dates", "reason", "status", "created_at"],
     "reports":     ["id", "name", "type", "month", "branch", "department", "generated_at", "file_path"],
 }
 
@@ -1002,6 +1003,61 @@ class HolidaySheet:
 def parse_emp_ids_local(raw) -> list[int]:
     from utils.holiday_utils import parse_emp_ids
     return parse_emp_ids(raw)
+
+
+# ---------------------------------------------------------------------------
+# Leave requests (employee apply → HR approval pending)
+# ---------------------------------------------------------------------------
+
+class LeaveSheet:
+    @staticmethod
+    def _serialize(record: dict) -> dict:
+        from utils.leave_utils import serialize_leave
+        return serialize_leave(dict(record))
+
+    @staticmethod
+    def for_employee(emp_id: int) -> List[dict]:
+        ws = get_sheet("leave_requests")
+        records = [
+            LeaveSheet._serialize(r)
+            for r in ws.get_all_records()
+            if str(r.get("emp_id")) == str(emp_id)
+        ]
+        return sorted(records, key=lambda r: r.get("created_at", ""), reverse=True)
+
+    @staticmethod
+    def has_overlap(emp_id: int, dates: List[str]) -> bool:
+        date_set = set(dates)
+        for leave in LeaveSheet.for_employee(emp_id):
+            if str(leave.get("status", "")).lower() == "rejected":
+                continue
+            existing = set(leave.get("dates") or [])
+            if date_set & existing:
+                return True
+        return False
+
+    @staticmethod
+    def create(
+        emp_id: int,
+        emp_name: str,
+        branch: str,
+        leave_type: str,
+        dates: List[str],
+        reason: str,
+    ) -> dict:
+        ws = get_sheet("leave_requests")
+        new_id = _next_id(ws)
+        now = now_iso()
+        dates_json = json.dumps(dates)
+        ws.append_row([
+            new_id, emp_id, emp_name, branch, leave_type,
+            dates_json, reason, "pending", now,
+        ])
+        return LeaveSheet._serialize({
+            "id": new_id, "emp_id": emp_id, "emp_name": emp_name, "branch": branch,
+            "leave_type": leave_type, "dates": dates_json, "reason": reason,
+            "status": "pending", "created_at": now,
+        })
 
 
 # ---------------------------------------------------------------------------

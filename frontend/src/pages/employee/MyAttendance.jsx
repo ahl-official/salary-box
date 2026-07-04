@@ -4,6 +4,7 @@ import { format, getDaysInMonth, startOfMonth, getDay, parseISO, isAfter } from 
 import { formatLocalTime, localDateKey, hoursBetween, nowIST, isTodayIST } from '../../utils/datetime'
 import { isWeekOff, overtimeHours, shiftDurationHours } from '../../utils/shift'
 import { latePolicyLabel, lateStatusLabel } from '../../utils/late'
+import LeaveApply from '../../components/LeaveApply'
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
@@ -282,6 +283,8 @@ export default function MyAttendance() {
           )}
         </div>
       )}
+
+      <LeaveApply />
     </div>
   )
 }

@@ -4,7 +4,7 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from datetime import datetime
 from utils.datetime_utils import now_iso
-from routers import auth, employees, attendance, settings, reports, notes, holidays
+from routers import auth, employees, attendance, settings, reports, notes, holidays, leaves
 from models.sheets import init_sheets, get_datastore_info, SettingsSheet
 
 @asynccontextmanager
@@ -36,6 +36,7 @@ app.include_router(settings.router,   prefix="/api/settings",   tags=["settings"
 app.include_router(reports.router,    prefix="/api/reports",    tags=["reports"])
 app.include_router(notes.router,      prefix="/api/notes",      tags=["notes"])
 app.include_router(holidays.router,   prefix="/api/holidays",   tags=["holidays"])
+app.include_router(leaves.router,     prefix="/api/leaves",     tags=["leaves"])
 
 @app.get("/api/health")
 def health():

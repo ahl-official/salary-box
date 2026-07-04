@@ -92,6 +92,9 @@ export const api = {
   updateHoliday: (id, data) => request('PUT', `/holidays/${id}`, data),
   deleteHoliday: (id) => request('DELETE', `/holidays/${id}`),
 
+  getMyLeaves: () => request('GET', '/leaves/my'),
+  applyLeave: (data) => request('POST', '/leaves/', data),
+
   // Reports
   getReports: () => request('GET', '/reports/'),
   generateReport: (data) => request('POST', '/reports/generate', data),

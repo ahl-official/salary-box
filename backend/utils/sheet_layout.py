@@ -19,6 +19,7 @@ TAB_ORDER = [
     "departments",
     "settings",
     "holidays",
+    "leave_requests",
     "notes",
     "reports",
 ]
@@ -36,6 +37,7 @@ README_ROWS = [
     ["departments", "Department list"],
     ["settings", "Company-wide settings (key / value pairs)"],
     ["holidays", "HR-assigned holidays — all staff or selected employees"],
+    ["leave_requests", "Employee leave applications — pending HR approval"],
     ["notes", "Daily office notes shown to employees"],
     ["reports", "Generated Excel report history"],
     [""],

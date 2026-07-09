@@ -6,6 +6,7 @@ from datetime import datetime
 from utils.datetime_utils import now_iso
 from routers import auth, employees, attendance, settings, reports, notes, holidays, leaves
 from models.sheets import init_sheets, get_datastore_info, SettingsSheet
+from models.apps_script_client import AppsScriptError
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -19,7 +20,23 @@ app = FastAPI(title="Attendance System API", lifespan=lifespan)
 
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception):
-    return JSONResponse(status_code=500, content={"detail": str(exc)})
+    if isinstance(exc, AppsScriptError):
+        return JSONResponse(
+            status_code=503,
+            content={"detail": "Database temporarily unavailable. Try again in a moment."},
+        )
+    detail = str(exc)
+    if "429" in detail and "sheets.googleapis.com" in detail:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": (
+                    "Google Sheets API quota exceeded. "
+                    "Remove GOOGLE_SHEETS_CREDS_B64 from Vercel and use APPS_SCRIPT_URL + APPS_SCRIPT_SECRET."
+                )
+            },
+        )
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 app.add_middleware(
     CORSMiddleware,
@@ -42,7 +59,7 @@ app.include_router(leaves.router,     prefix="/api/leaves",     tags=["leaves"])
 def health():
     info = get_datastore_info()
     sheet_id = info.get("spreadsheet_id")
-    connected = info.get("type") == "google_sheets" and not info.get("connection_error")
+    connected = info.get("type") in ("google_sheets", "apps_script") and not info.get("connection_error")
     if connected:
         s = SettingsSheet.get_all()
         timestamp = now_iso(s)
@@ -57,16 +74,20 @@ def health():
         **info,
         "spreadsheet_url": f"https://docs.google.com/spreadsheets/d/{sheet_id}/edit" if sheet_id else None,
         "setup_hint": (
-            f"Share your spreadsheet with {info.get('service_account_email')} as Editor"
-            if info.get("connection_error") and info.get("service_account_email")
+            "Deploy Apps Script from apps-script/ and set APPS_SCRIPT_URL + APPS_SCRIPT_SECRET on Vercel. "
+            "Then delete GOOGLE_SHEETS_CREDS_B64."
+            if info.get("type") == "disconnected" and not info.get("connection_error")
             else (
-                "Fix Vercel env: delete GOOGLE_SHEETS_CREDS_JSON and set "
-                "GOOGLE_SHEETS_CREDS_B64 instead (run print_creds_oneline.py --base64)"
-                if info.get("connection_error") and "invalid JSON" in str(info.get("connection_error", ""))
+                f"Apps Script error: {info.get('connection_error')}"
+                if info.get("type") == "disconnected" and info.get("connection_error")
                 else (
-                    "Set GOOGLE_SHEETS_CREDS_B64 or a valid one-line GOOGLE_SHEETS_CREDS_JSON on Vercel"
-                    if info.get("connection_error")
-                    else None
+                    f"Share your spreadsheet with {info.get('service_account_email')} as Editor"
+                    if info.get("connection_error") and info.get("service_account_email")
+                    else (
+                        "Set APPS_SCRIPT_URL + APPS_SCRIPT_SECRET on Vercel (deploy apps-script/ to Google Sheets)"
+                        if info.get("connection_error")
+                        else None
+                    )
                 )
             )
         ),

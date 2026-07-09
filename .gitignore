@@ -2,6 +2,7 @@
 backend/service_account.json
 backend/.env
 backend/VERCEL_ENV_SETUP.txt
+backend/local_data.json
 frontend/.env
 frontend/.env.local
 .env

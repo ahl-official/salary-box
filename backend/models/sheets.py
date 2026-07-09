@@ -35,8 +35,7 @@ from utils.branch_settings import (
     serialize_branch,
 )
 
-import gspread
-from google.oauth2.service_account import Credentials
+from models.apps_script_client import apps_script_enabled, call_action
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(_BACKEND_DIR / ".env")
@@ -93,9 +92,15 @@ DEFAULT_EMPLOYEES = [
 
 _client_lock = threading.Lock()
 _local_lock = threading.RLock()
-_gc: Optional[gspread.Client] = None
+_gc = None
 _spreadsheet = None
 _BUNDLED_LOCAL_DB = _BACKEND_DIR / "local_data.json"
+
+
+def _ensure_gspread():
+    import gspread
+    from google.oauth2.service_account import Credentials
+    return gspread, Credentials
 
 
 def _resolve_local_db_path() -> str:
@@ -105,6 +110,10 @@ def _resolve_local_db_path() -> str:
 
 
 LOCAL_DB_PATH = _resolve_local_db_path()
+
+
+class WorksheetNotFound(Exception):
+    pass
 
 
 def _ensure_local_db_seeded():
@@ -213,7 +222,7 @@ class LocalSpreadsheet:
     def worksheet(self, tab_name: str):
         db = self._read_db()
         if tab_name not in db:
-            raise gspread.WorksheetNotFound(tab_name)
+            raise WorksheetNotFound(tab_name)
         return LocalWorksheet(tab_name)
 
     def add_worksheet(self, title: str, rows: int = 1000, cols: int = 20):
@@ -249,6 +258,8 @@ def _decode_creds_b64(b64: str) -> str:
 
 
 def _resolve_creds_raw() -> str:
+    if os.environ.get("VERCEL"):
+        return ""
     b64 = os.environ.get("GOOGLE_SHEETS_CREDS_B64", "").strip()
     if b64:
         try:
@@ -279,7 +290,19 @@ def _resolve_spreadsheet_id() -> str:
     return os.environ.get("GOOGLE_SPREADSHEET_ID", DEFAULT_SPREADSHEET_ID).strip()
 
 
+def _using_apps_script() -> bool:
+    return apps_script_enabled()
+
+
+def _as(action: str, args: Optional[dict] = None) -> Any:
+    return call_action(action, args or {})
+
+
 def _using_local_store() -> bool:
+    if os.environ.get("VERCEL"):
+        return False
+    if _using_apps_script():
+        return False
     return not _resolve_creds_raw() or not _resolve_spreadsheet_id()
 
 
@@ -316,7 +339,8 @@ def _load_creds_info() -> dict:
     ) from last_error
 
 
-def _get_credentials() -> Credentials:
+def _get_credentials():
+    gspread, Credentials = _ensure_gspread()
     info = _load_creds_info()
     return Credentials.from_service_account_info(info, scopes=SCOPES)
 
@@ -337,6 +361,7 @@ def get_spreadsheet():
             _spreadsheet = LocalSpreadsheet()
             return _spreadsheet
         try:
+            gspread, _Credentials = _ensure_gspread()
             creds = _get_credentials()
             _gc = gspread.authorize(creds)
             spreadsheet_id = _resolve_spreadsheet_id()
@@ -354,17 +379,44 @@ def get_spreadsheet():
             ) from exc
 
 
-def get_sheet(tab_name: str) -> gspread.Worksheet:
+def get_sheet(tab_name: str):
     ss = get_spreadsheet()
+    if _using_local_store():
+        try:
+            return ss.worksheet(tab_name)
+        except WorksheetNotFound:
+            ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
+            ws.append_row(SHEET_HEADERS[tab_name])
+            return ws
+    gspread, _ = _ensure_gspread()
     try:
-        ws = ss.worksheet(tab_name)
+        return ss.worksheet(tab_name)
     except gspread.WorksheetNotFound:
         ws = ss.add_worksheet(title=tab_name, rows=1000, cols=20)
         ws.append_row(SHEET_HEADERS[tab_name])
-    return ws
+        return ws
 
 
 def get_datastore_info() -> dict:
+    if _using_apps_script():
+        info = {
+            "type": "apps_script",
+            "spreadsheet_id": _resolve_spreadsheet_id(),
+            "creds_configured": False,
+            "creds_format": None,
+            "service_account_email": None,
+        }
+        try:
+            health = _as("health")
+            info["spreadsheet_id"] = health.get("spreadsheet_id") or info["spreadsheet_id"]
+            info["spreadsheet_title"] = health.get("spreadsheet_title")
+            info["tabs"] = health.get("tabs", [])
+            info["timezone"] = health.get("timezone")
+        except Exception as exc:
+            info["connection_error"] = str(exc)
+            info["type"] = "disconnected"
+        return info
+
     using_local = _using_local_store()
     info = {
         "type": "local_json" if using_local else "google_sheets",
@@ -410,6 +462,21 @@ def get_datastore_info() -> dict:
 
 def init_sheets():
     """Called at startup — ensures all tabs + default data exist."""
+    if os.environ.get("VERCEL") and not _using_apps_script():
+        print(
+            "Vercel requires Apps Script. Set APPS_SCRIPT_URL and APPS_SCRIPT_SECRET, "
+            "and remove GOOGLE_SHEETS_CREDS_B64."
+        )
+        return
+
+    if _using_apps_script():
+        try:
+            _as("health")
+            print("Attendance data connected via Apps Script (SpreadsheetApp).")
+        except Exception as exc:
+            print(f"Apps Script health check failed: {exc}")
+        return
+
     if _using_local_store():
         _ensure_local_db_seeded()
     ss = get_spreadsheet()
@@ -478,25 +545,12 @@ def init_sheets():
     else:
         print(f"Attendance data initialized successfully using {store}.")
 
-    if not _using_local_store():
-        try:
-            from utils.sheet_layout import SHEETS_LAYOUT_VERSION, organize_spreadsheet
-            settings_rows = get_sheet("settings").get_all_records()
-            layout_version = next(
-                (r.get("value") for r in settings_rows if r.get("key") == "sheets_layout_version"),
-                None,
-            )
-            if layout_version != SHEETS_LAYOUT_VERSION:
-                organize_spreadsheet(ss, SHEET_HEADERS)
-        except Exception as exc:
-            print(f"Sheet layout organize skipped: {exc}")
-
 
 # ---------------------------------------------------------------------------
 # Generic CRUD helpers
 # ---------------------------------------------------------------------------
 
-def _next_id(ws: gspread.Worksheet) -> int:
+def _next_id(ws) -> int:
     """Return max(id) + 1 across all rows, or 1 if empty."""
     records = ws.get_all_records()
     if not records:
@@ -505,7 +559,7 @@ def _next_id(ws: gspread.Worksheet) -> int:
     return max(ids, default=0) + 1
 
 
-def _find_row_index(ws: gspread.Worksheet, col_name: str, value: Any) -> Optional[int]:
+def _find_row_index(ws, col_name: str, value: Any) -> Optional[int]:
     """Return 1-based row index (including header) or None."""
     headers = ws.row_values(1)
     if col_name not in headers:
@@ -534,6 +588,8 @@ def _row_to_dict(headers: List[str], row: List[str]) -> Dict[str, str]:
 class EmployeeSheet:
     @staticmethod
     def all(search: str = "", department: str = "", branch: str = "") -> List[dict]:
+        if _using_apps_script():
+            return _as("employees.all", {"search": search, "department": department, "branch": branch})
         ws = get_sheet("employees")
         records = ws.get_all_records()
         result = []
@@ -549,6 +605,8 @@ class EmployeeSheet:
 
     @staticmethod
     def get_by_id(emp_id: int) -> Optional[dict]:
+        if _using_apps_script():
+            return _as("employees.get_by_id", {"emp_id": emp_id})
         ws = get_sheet("employees")
         for r in ws.get_all_records():
             if str(r.get("id")) == str(emp_id):
@@ -557,6 +615,8 @@ class EmployeeSheet:
 
     @staticmethod
     def get_by_phone(phone: str) -> Optional[dict]:
+        if _using_apps_script():
+            return _as("employees.get_by_phone", {"phone": phone})
         ws = get_sheet("employees")
         for r in ws.get_all_records():
             if str(r.get("phone", "")).strip() == str(phone).strip():
@@ -565,6 +625,11 @@ class EmployeeSheet:
 
     @staticmethod
     def create(name: str, phone: str, role: str, department: str, branch: str, designation: str) -> dict:
+        if _using_apps_script():
+            return _as("employees.create", {
+                "name": name, "phone": phone, "role": role,
+                "department": department, "branch": branch, "designation": designation,
+            })
         ws = get_sheet("employees")
         # Check duplicate phone
         if EmployeeSheet.get_by_phone(phone):
@@ -577,6 +642,8 @@ class EmployeeSheet:
 
     @staticmethod
     def update(emp_id: int, fields: dict) -> Optional[dict]:
+        if _using_apps_script():
+            return _as("employees.update", {"emp_id": emp_id, "fields": fields})
         ws = get_sheet("employees")
         headers = ws.row_values(1)
         row_idx = _find_row_index(ws, "id", emp_id)
@@ -590,6 +657,8 @@ class EmployeeSheet:
 
     @staticmethod
     def delete(emp_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("employees.delete", {"emp_id": emp_id}))
         ws = get_sheet("employees")
         row_idx = _find_row_index(ws, "id", emp_id)
         if not row_idx:
@@ -606,6 +675,16 @@ class AttendanceSheet:
     @staticmethod
     def add(emp_id: int, emp_name: str, punch_type: str, timestamp: str,
             lat: float, lng: float, status: str, distance: float) -> dict:
+        if _using_apps_script():
+            row = _as("attendance.add", {
+                "emp_id": emp_id, "emp_name": emp_name, "punch_type": punch_type,
+                "timestamp": timestamp, "lat": lat, "lng": lng,
+                "status": status, "distance": distance,
+            })
+            return {
+                **row,
+                "distance_from_office": row.get("distance_from_office", row.get("distance", distance)),
+            }
         ws = get_sheet("attendance")
         new_id = _next_id(ws)
         row = [new_id, emp_id, emp_name, punch_type, timestamp,
@@ -621,6 +700,8 @@ class AttendanceSheet:
     def for_employee_today(emp_id: int) -> List[dict]:
         settings = SettingsSheet.get_all()
         today = today_iso(settings)
+        if _using_apps_script():
+            return [dict(r) for r in _as("attendance.for_employee_today", {"emp_id": emp_id, "today": today})]
         ws = get_sheet("attendance")
         return [
             dict(r) for r in ws.get_all_records()
@@ -630,6 +711,21 @@ class AttendanceSheet:
 
     @staticmethod
     def for_employee_month(emp_id: int, year: int, month: int) -> List[dict]:
+        if _using_apps_script():
+            settings = SettingsSheet.get_all()
+            rows = _as("attendance.for_employee_month", {"emp_id": emp_id, "year": year, "month": month})
+            result = []
+            for r in rows:
+                ts = str(r.get("timestamp", ""))
+                if not ts:
+                    continue
+                try:
+                    local_dt = parse_timestamp(ts, settings)
+                    if local_dt.year == year and local_dt.month == month:
+                        result.append(dict(r))
+                except ValueError:
+                    continue
+            return result
         settings = SettingsSheet.get_all()
         ws = get_sheet("attendance")
         result = []
@@ -649,6 +745,13 @@ class AttendanceSheet:
 
     @staticmethod
     def for_date(date_str: str) -> List[dict]:
+        if _using_apps_script():
+            settings = SettingsSheet.get_all()
+            rows = _as("attendance.for_date", {"date_str": date_str})
+            return [
+                dict(r) for r in rows
+                if local_date_from_timestamp(str(r.get("timestamp", "")), settings) == date_str
+            ]
         settings = SettingsSheet.get_all()
         ws = get_sheet("attendance")
         return [
@@ -658,6 +761,13 @@ class AttendanceSheet:
 
     @staticmethod
     def for_employee_date(emp_id: int, date_str: str) -> List[dict]:
+        if _using_apps_script():
+            settings = SettingsSheet.get_all()
+            rows = _as("attendance.for_employee_date", {"emp_id": emp_id, "date_str": date_str})
+            return [
+                dict(r) for r in rows
+                if local_date_from_timestamp(str(r.get("timestamp", "")), settings) == date_str
+            ]
         settings = SettingsSheet.get_all()
         ws = get_sheet("attendance")
         return [
@@ -674,6 +784,8 @@ class AttendanceSheet:
 class SettingsSheet:
     @staticmethod
     def get_all() -> dict:
+        if _using_apps_script():
+            return _as("settings.get_all")
         ws = get_sheet("settings")
         records = ws.get_all_records()
         result = {}
@@ -687,6 +799,9 @@ class SettingsSheet:
 
     @staticmethod
     def set(key: str, value: str):
+        if _using_apps_script():
+            _as("settings.set", {"key": key, "value": value})
+            return
         ws = get_sheet("settings")
         row_idx = _find_row_index(ws, "key", key)
         if row_idx:
@@ -697,6 +812,9 @@ class SettingsSheet:
     @staticmethod
     def update_many(updates: dict):
         """Batch update multiple settings keys."""
+        if _using_apps_script():
+            _as("settings.update_many", {"updates": {k: str(v) for k, v in updates.items()}})
+            return
         ws = get_sheet("settings")
         records = ws.get_all_records()
         existing = {r["key"]: idx + 2 for idx, r in enumerate(records)}  # +2 = header offset
@@ -795,11 +913,16 @@ def _migrate_head_office_employees():
 class BranchSheet:
     @staticmethod
     def all() -> List[dict]:
+        if _using_apps_script():
+            return [serialize_branch(dict(r)) for r in _as("branches.all")]
         ws = get_sheet("branches")
         return [serialize_branch(dict(r)) for r in ws.get_all_records()]
 
     @staticmethod
     def get_by_id(branch_id: int) -> Optional[dict]:
+        if _using_apps_script():
+            row = _as("branches.get_by_id", {"branch_id": branch_id})
+            return serialize_branch(dict(row)) if row else None
         for b in BranchSheet.all():
             if str(b.get("id")) == str(branch_id):
                 return b
@@ -807,6 +930,9 @@ class BranchSheet:
 
     @staticmethod
     def get_by_name(name: str) -> Optional[dict]:
+        if _using_apps_script():
+            row = _as("branches.get_by_name", {"name": name})
+            return serialize_branch(dict(row)) if row else None
         for b in BranchSheet.all():
             if b["name"].lower() == name.lower():
                 return b
@@ -814,6 +940,8 @@ class BranchSheet:
 
     @staticmethod
     def create(name: str) -> dict:
+        if _using_apps_script():
+            return serialize_branch(dict(_as("branches.create", {"name": name})))
         if BranchSheet.get_by_name(name):
             raise ValueError("Branch already exists")
         ws = get_sheet("branches")
@@ -824,6 +952,12 @@ class BranchSheet:
 
     @staticmethod
     def update(branch_id: int, fields: dict) -> Optional[dict]:
+        if _using_apps_script():
+            updates = dict(fields)
+            if "working_days" in updates and isinstance(updates["working_days"], list):
+                updates["working_days"] = json.dumps(updates["working_days"])
+            row = _as("branches.update", {"branch_id": branch_id, "fields": updates})
+            return serialize_branch(dict(row)) if row else None
         ws = get_sheet("branches")
         headers = ws.row_values(1)
         row_idx = _find_row_index(ws, "id", branch_id)
@@ -840,6 +974,8 @@ class BranchSheet:
 
     @staticmethod
     def delete(branch_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("branches.delete", {"branch_id": branch_id}))
         ws = get_sheet("branches")
         row_idx = _find_row_index(ws, "id", branch_id)
         if not row_idx:
@@ -855,6 +991,8 @@ class BranchSheet:
 class DeptSheet:
     @staticmethod
     def all() -> List[dict]:
+        if _using_apps_script():
+            return [dict(r) for r in _as("departments.all")]
         ws = get_sheet("departments")
         return [dict(r) for r in ws.get_all_records()]
 
@@ -867,6 +1005,8 @@ class DeptSheet:
 
     @staticmethod
     def create(name: str) -> dict:
+        if _using_apps_script():
+            return dict(_as("departments.create", {"name": name}))
         if DeptSheet.get_by_name(name):
             raise ValueError("Department already exists")
         ws = get_sheet("departments")
@@ -876,6 +1016,8 @@ class DeptSheet:
 
     @staticmethod
     def delete(dept_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("departments.delete", {"dept_id": dept_id}))
         ws = get_sheet("departments")
         row_idx = _find_row_index(ws, "id", dept_id)
         if not row_idx:
@@ -891,18 +1033,27 @@ class DeptSheet:
 class NoteSheet:
     @staticmethod
     def all(limit: int = 50) -> List[dict]:
+        if _using_apps_script():
+            return _as("notes.all", {"limit": limit})
         ws = get_sheet("notes")
         records = ws.get_all_records()
         return sorted(records, key=lambda r: r.get("date", ""), reverse=True)[:limit]
 
     @staticmethod
     def for_date(date_str: str) -> Optional[dict]:
+        if _using_apps_script():
+            row = _as("notes.for_date", {"date_str": date_str})
+            return dict(row) if row else None
         ws = get_sheet("notes")
         matches = [r for r in ws.get_all_records() if str(r.get("date", "")) == date_str]
         return dict(matches[-1]) if matches else None
 
     @staticmethod
     def create(content: str, posted_by: str, note_date: str) -> dict:
+        if _using_apps_script():
+            return dict(_as("notes.create", {
+                "content": content, "posted_by": posted_by, "note_date": note_date,
+            }))
         ws = get_sheet("notes")
         new_id = _next_id(ws)
         now = now_iso()
@@ -911,6 +1062,8 @@ class NoteSheet:
 
     @staticmethod
     def delete(note_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("notes.delete", {"note_id": note_id}))
         ws = get_sheet("notes")
         row_idx = _find_row_index(ws, "id", note_id)
         if not row_idx:
@@ -931,6 +1084,9 @@ class HolidaySheet:
 
     @staticmethod
     def all(month: str = "", employees: list[dict] | None = None) -> List[dict]:
+        if _using_apps_script():
+            rows = _as("holidays.all", {"month": month})
+            return [HolidaySheet._serialize(r, employees) for r in rows]
         ws = get_sheet("holidays")
         records = ws.get_all_records()
         if month:
@@ -939,6 +1095,9 @@ class HolidaySheet:
 
     @staticmethod
     def get_by_id(holiday_id: int, employees: list[dict] | None = None) -> Optional[dict]:
+        if _using_apps_script():
+            row = _as("holidays.get_by_id", {"holiday_id": holiday_id})
+            return HolidaySheet._serialize(row, employees) if row else None
         for h in HolidaySheet.all(employees=employees):
             if str(h.get("id")) == str(holiday_id):
                 return h
@@ -959,6 +1118,12 @@ class HolidaySheet:
 
     @staticmethod
     def create(name: str, date_str: str, scope: str, emp_ids: list[int], created_by: str) -> dict:
+        if _using_apps_script():
+            row = _as("holidays.create", {
+                "name": name, "date_str": date_str, "scope": scope,
+                "emp_ids": emp_ids, "created_by": created_by,
+            })
+            return HolidaySheet.get_by_id(row["id"]) or HolidaySheet._serialize(row)
         ws = get_sheet("holidays")
         new_id = _next_id(ws)
         month = date_str[:7] if len(date_str) >= 7 else ""
@@ -974,6 +1139,10 @@ class HolidaySheet:
 
     @staticmethod
     def update(holiday_id: int, fields: dict) -> Optional[dict]:
+        if _using_apps_script():
+            updates = dict(fields)
+            row = _as("holidays.update", {"holiday_id": holiday_id, "fields": updates})
+            return HolidaySheet.get_by_id(holiday_id) if row else None
         ws = get_sheet("holidays")
         headers = ws.row_values(1)
         row_idx = _find_row_index(ws, "id", holiday_id)
@@ -992,6 +1161,8 @@ class HolidaySheet:
 
     @staticmethod
     def delete(holiday_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("holidays.delete", {"holiday_id": holiday_id}))
         ws = get_sheet("holidays")
         row_idx = _find_row_index(ws, "id", holiday_id)
         if not row_idx:
@@ -1017,6 +1188,8 @@ class LeaveSheet:
 
     @staticmethod
     def for_employee(emp_id: int) -> List[dict]:
+        if _using_apps_script():
+            return [LeaveSheet._serialize(r) for r in _as("leaves.for_employee", {"emp_id": emp_id})]
         ws = get_sheet("leave_requests")
         records = [
             LeaveSheet._serialize(r)
@@ -1027,6 +1200,8 @@ class LeaveSheet:
 
     @staticmethod
     def has_overlap(emp_id: int, dates: List[str]) -> bool:
+        if _using_apps_script():
+            return bool(_as("leaves.has_overlap", {"emp_id": emp_id, "dates": dates}))
         date_set = set(dates)
         for leave in LeaveSheet.for_employee(emp_id):
             if str(leave.get("status", "")).lower() == "rejected":
@@ -1045,6 +1220,11 @@ class LeaveSheet:
         dates: List[str],
         reason: str,
     ) -> dict:
+        if _using_apps_script():
+            return LeaveSheet._serialize(_as("leaves.create", {
+                "emp_id": emp_id, "emp_name": emp_name, "branch": branch,
+                "leave_type": leave_type, "dates": dates, "reason": reason,
+            }))
         ws = get_sheet("leave_requests")
         new_id = _next_id(ws)
         now = now_iso()
@@ -1067,11 +1247,18 @@ class LeaveSheet:
 class ReportSheet:
     @staticmethod
     def all() -> List[dict]:
+        if _using_apps_script():
+            return _as("reports.all")
         ws = get_sheet("reports")
         return sorted(ws.get_all_records(), key=lambda r: r.get("generated_at", ""), reverse=True)
 
     @staticmethod
     def create(name: str, rtype: str, month: str, branch: str, department: str, file_path: str) -> dict:
+        if _using_apps_script():
+            return dict(_as("reports.create", {
+                "name": name, "type": rtype, "month": month,
+                "branch": branch, "department": department, "file_path": file_path,
+            }))
         ws = get_sheet("reports")
         new_id = _next_id(ws)
         now = now_iso()
@@ -1081,6 +1268,9 @@ class ReportSheet:
 
     @staticmethod
     def get_by_id(report_id: int) -> Optional[dict]:
+        if _using_apps_script():
+            row = _as("reports.get_by_id", {"report_id": report_id})
+            return dict(row) if row else None
         ws = get_sheet("reports")
         for r in ws.get_all_records():
             if str(r.get("id")) == str(report_id):
@@ -1089,6 +1279,8 @@ class ReportSheet:
 
     @staticmethod
     def delete(report_id: int) -> bool:
+        if _using_apps_script():
+            return bool(_as("reports.delete", {"report_id": report_id}))
         ws = get_sheet("reports")
         row_idx = _find_row_index(ws, "id", report_id)
         if not row_idx:

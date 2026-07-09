@@ -23,7 +23,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     if isinstance(exc, AppsScriptError):
         return JSONResponse(
             status_code=503,
-            content={"detail": "Database temporarily unavailable. Try again in a moment."},
+            content={"detail": f"Apps Script unavailable: {exc}"},
         )
     detail = str(exc)
     if "429" in detail and "sheets.googleapis.com" in detail:

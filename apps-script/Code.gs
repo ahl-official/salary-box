@@ -96,12 +96,40 @@ var ACTIONS = {
 };
 
 function doGet(e) {
+  var p = e.parameter || {};
+  if (p.action) {
+    try {
+      if (!verifySecret_(p.secret)) {
+        return jsonResponse({ ok: false, error: 'Unauthorized' });
+      }
+      var args = {};
+      if (p.args) {
+        try { args = JSON.parse(p.args); } catch (err) { args = {}; }
+      }
+      if (!ACTIONS[p.action]) {
+        return jsonResponse({ ok: false, error: 'Unknown action: ' + p.action });
+      }
+      var data = ACTIONS[p.action](args);
+      return jsonResponse({ ok: true, data: data });
+    } catch (err) {
+      return jsonResponse({ ok: false, error: String(err.message || err) });
+    }
+  }
   return jsonResponse({ ok: true, data: handleHealth({}) });
 }
 
 function doPost(e) {
   try {
-    var body = e.postData && e.postData.contents ? JSON.parse(e.postData.contents) : {};
+    var body = {};
+    if (e.postData && e.postData.contents) {
+      if (e.postData.type === 'application/json') {
+        body = JSON.parse(e.postData.contents);
+      } else {
+        body = JSON.parse(e.parameter.payload || e.postData.contents);
+      }
+    } else if (e.parameter && e.parameter.payload) {
+      body = JSON.parse(e.parameter.payload);
+    }
     if (!verifySecret_(body.secret)) {
       return jsonResponse({ ok: false, error: 'Unauthorized' }, 401);
     }

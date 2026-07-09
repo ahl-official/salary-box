@@ -35,7 +35,7 @@ from utils.branch_settings import (
     serialize_branch,
 )
 
-from models.apps_script_client import apps_script_enabled, call_action
+from models.apps_script_client import apps_script_enabled, call_action, call_action_health
 
 _BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(_BACKEND_DIR / ".env")
@@ -407,13 +407,13 @@ def get_datastore_info() -> dict:
             "service_account_email": None,
         }
         try:
-            health = _as("health")
+            health = call_action_health()
             info["spreadsheet_id"] = health.get("spreadsheet_id") or info["spreadsheet_id"]
             info["spreadsheet_title"] = health.get("spreadsheet_title")
             info["tabs"] = health.get("tabs", [])
             info["timezone"] = health.get("timezone")
         except Exception as exc:
-            info["connection_error"] = str(exc)
+            info["connection_error"] = str(exc)[:500]
             info["type"] = "disconnected"
         return info
 
@@ -471,7 +471,7 @@ def init_sheets():
 
     if _using_apps_script():
         try:
-            _as("health")
+            call_action_health()
             print("Attendance data connected via Apps Script (SpreadsheetApp).")
         except Exception as exc:
             print(f"Apps Script health check failed: {exc}")

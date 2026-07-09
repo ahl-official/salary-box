@@ -4,6 +4,7 @@ import { format, getDaysInMonth, startOfMonth, getDay, isAfter, parseISO } from 
 import { formatLocalTime, localDateKey, hoursBetween, nowIST, isTodayIST } from '../../utils/datetime'
 import { isWeekOff, overtimeHours, shiftDurationHours } from '../../utils/shift'
 import { useToast } from '../../context/ToastContext'
+import EmployeeUpload from '../../components/EmployeeUpload'
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S']
 
@@ -168,63 +169,119 @@ function EmployeeDetail({ emp, onBack }) {
 
 export default function AdminStaff() {
   const [employees, setEmployees] = useState([])
+  const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [branchFilter, setBranchFilter] = useState('all')
+  const [showUpload, setShowUpload] = useState(false)
   const [selected, setSelected] = useState(null)
   const toast = useToast()
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await api.getEmployees()
+      const [data, branchList] = await Promise.all([
+        api.getEmployees(),
+        api.getBranches(),
+      ])
       setEmployees(data)
+      setBranches(branchList)
     } catch (e) {
       toast('Failed to load staff', 'error')
     }
     setLoading(false)
-  }, [])
+  }, [toast])
 
   useEffect(() => { load() }, [load])
 
   if (selected) return <EmployeeDetail emp={selected} onBack={() => setSelected(null)} />
 
-  const filtered = employees.filter(e =>
-    e.name.toLowerCase().includes(search.toLowerCase()) ||
-    e.phone.includes(search) ||
-    (e.department_name||'').toLowerCase().includes(search.toLowerCase())
-  )
+  const branchCounts = employees.reduce((acc, emp) => {
+    const key = emp.branch || emp.branch_name || 'Unassigned'
+    acc[key] = (acc[key] || 0) + 1
+    return acc
+  }, {})
+
+  const filtered = employees.filter(e => {
+    const matchesSearch =
+      e.name.toLowerCase().includes(search.toLowerCase()) ||
+      e.phone.includes(search) ||
+      (e.department_name || '').toLowerCase().includes(search.toLowerCase())
+    const empBranch = e.branch || e.branch_name || ''
+    const matchesBranch = branchFilter === 'all' || empBranch.toLowerCase() === branchFilter.toLowerCase()
+    return matchesSearch && matchesBranch
+  })
+
+  const branchTabs = [
+    { key: 'all', label: 'All', count: employees.length },
+    ...branches.map((b) => ({
+      key: b.name,
+      label: b.name,
+      count: branchCounts[b.name] || 0,
+    })),
+  ]
 
   return (
-    <div className="screen-content fade-in">
-      <div className="page-header">
-        <h1 className="page-title">Staff</h1>
-        <p className="page-subtitle">{employees.length} employees</p>
+    <div className="screen-content fade-in staff-page">
+      <div className="staff-page-header">
+        <div>
+          <h1 className="page-title">Staff</h1>
+          <p className="page-subtitle">{filtered.length} shown · {employees.length} total</p>
+        </div>
+        <button type="button" className="btn btn-primary staff-upload-btn" onClick={() => setShowUpload((v) => !v)}>
+          {showUpload ? 'Hide upload' : 'Upload CSV'}
+        </button>
       </div>
 
-      <div className="search-bar">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input placeholder="Search by name, phone, department..." value={search} onChange={e => setSearch(e.target.value)} />
-        {search && <button onClick={() => setSearch('')} style={{ color: 'var(--text-muted)', fontSize: 18, lineHeight: 1 }}>×</button>}
+      {showUpload && (
+        <EmployeeUpload
+          branches={branches}
+          onClose={() => setShowUpload(false)}
+          onImported={load}
+        />
+      )}
+
+      <div className="staff-toolbar">
+        <div className="branch-filter-row">
+          {branchTabs.map((tab) => (
+            <button
+              key={tab.key}
+              type="button"
+              className={`branch-filter-btn ${branchFilter === tab.key ? 'active' : ''}`}
+              onClick={() => setBranchFilter(tab.key)}
+            >
+              {tab.label}
+              <span className="branch-filter-count">{tab.count}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="search-bar staff-search-bar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <input placeholder="Search by name, phone, department..." value={search} onChange={e => setSearch(e.target.value)} />
+          {search && <button onClick={() => setSearch('')} className="search-clear-btn">×</button>}
+        </div>
       </div>
 
       {loading ? (
-        <div style={{ textAlign: 'center', padding: 40 }}><div className="spinner" style={{ margin: '0 auto' }} /></div>
+        <div className="staff-loading"><div className="spinner" /></div>
       ) : filtered.length === 0 ? (
         <div className="empty-state"><p>No staff found</p></div>
       ) : (
-        <div className="card" style={{ padding: 0 }}>
+        <div className="card staff-grid" style={{ padding: 0 }}>
           {filtered.map(emp => {
             const initials = emp.name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2)
             return (
-              <div key={emp.id} className="list-item" style={{ padding: '14px 16px' }} onClick={() => setSelected(emp)}>
+              <div key={emp.id} className="list-item staff-list-item" onClick={() => setSelected(emp)}>
                 <div className="avatar">{initials}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <p style={{ fontWeight: 600, fontSize: 15 }}>{emp.name}</p>
-                  <p style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 2 }}>
+                <div className="staff-list-body">
+                  <p className="staff-list-name">{emp.name}</p>
+                  <p className="staff-list-meta">
                     {emp.designation || '--'} · {emp.department_name || '--'}
                   </p>
+                  <p className="staff-list-branch">{emp.branch_name || emp.branch || '--'}</p>
                 </div>
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round"><polyline points="9,18 15,12 9,6"/></svg>
+                <svg className="staff-list-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round"><polyline points="9,18 15,12 9,6"/></svg>
               </div>
             )
           })}

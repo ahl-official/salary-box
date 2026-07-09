@@ -631,7 +631,6 @@ class EmployeeSheet:
                 "department": department, "branch": branch, "designation": designation,
             })
         ws = get_sheet("employees")
-        # Check duplicate phone
         if EmployeeSheet.get_by_phone(phone):
             raise ValueError("Phone number already registered")
         new_id = _next_id(ws)
@@ -639,6 +638,38 @@ class EmployeeSheet:
         ws.append_row(row)
         return {"id": new_id, "name": name, "phone": phone, "role": role,
                 "department": department, "branch": branch, "designation": designation}
+
+    @staticmethod
+    def bulk_create(employees: List[dict], default_branch: str = "") -> dict:
+        if _using_apps_script():
+            return _as("employees.bulk_create", {
+                "employees": employees,
+                "default_branch": default_branch,
+            })
+        created = []
+        skipped = []
+        for index, item in enumerate(employees, start=1):
+            phone = str(item.get("phone", "")).strip()
+            name = str(item.get("name", "")).strip()
+            if not name or not phone:
+                skipped.append({"row": index, "phone": phone, "reason": "Name and phone required"})
+                continue
+            if EmployeeSheet.get_by_phone(phone):
+                skipped.append({"row": index, "phone": phone, "reason": "Phone already registered"})
+                continue
+            try:
+                row = EmployeeSheet.create(
+                    name=name,
+                    phone=phone,
+                    role=item.get("role") or "employee",
+                    department=item.get("department") or "General",
+                    branch=item.get("branch") or default_branch or "Back Office",
+                    designation=item.get("designation") or "Employee",
+                )
+                created.append(row)
+            except ValueError as exc:
+                skipped.append({"row": index, "phone": phone, "reason": str(exc)})
+        return {"created": created, "skipped": skipped, "count": len(created)}
 
     @staticmethod
     def update(emp_id: int, fields: dict) -> Optional[dict]:

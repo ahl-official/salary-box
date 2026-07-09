@@ -50,6 +50,7 @@ export const api = {
   createEmployee: (data) => request('POST', '/employees/', data),
   updateEmployee: (id, data) => request('PUT', `/employees/${id}`, data),
   deleteEmployee: (id) => request('DELETE', `/employees/${id}`),
+  bulkImportEmployees: (data) => request('POST', '/employees/bulk', data),
   getBranches: () => request('GET', '/employees/branches/all'),
   getDepartments: () => request('GET', '/employees/departments/all'),
 

@@ -43,7 +43,7 @@ export default function AdminApp() {
   const [tab, setTab] = useState('attendance')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="app-shell">
       <div className="screen">
         {tab === 'staff' && <AdminStaff />}
         {tab === 'attendance' && <AdminAttendance />}

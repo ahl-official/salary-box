@@ -49,6 +49,7 @@ var ACTIONS = {
   'employees.get_by_id': employeesGetById,
   'employees.get_by_phone': employeesGetByPhone,
   'employees.create': employeesCreate,
+  'employees.bulk_create': employeesBulkCreate,
   'employees.update': employeesUpdate,
   'employees.delete': employeesDelete,
 

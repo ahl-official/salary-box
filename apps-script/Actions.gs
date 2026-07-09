@@ -46,6 +46,45 @@ function employeesCreate(args) {
   return row;
 }
 
+function employeesBulkCreate(args) {
+  var rows = args.employees || [];
+  var defaultBranch = args.default_branch || '';
+  var created = [];
+  var skipped = [];
+  var seenPhones = {};
+  getRecords_(TAB.EMPLOYEES).forEach(function (r) {
+    seenPhones[String(r.phone).trim()] = true;
+  });
+  rows.forEach(function (item, index) {
+    var phone = String(item.phone || '').trim();
+    var name = String(item.name || '').trim();
+    if (!name || !phone) {
+      skipped.push({ row: index + 1, phone: phone, reason: 'Name and phone required' });
+      return;
+    }
+    if (seenPhones[phone] || employeesGetByPhone({ phone: phone })) {
+      skipped.push({ row: index + 1, phone: phone, reason: 'Phone already registered' });
+      seenPhones[phone] = true;
+      return;
+    }
+    try {
+      var row = employeesCreate({
+        name: name,
+        phone: phone,
+        role: item.role || 'employee',
+        department: item.department || 'General',
+        branch: item.branch || defaultBranch || 'Back Office',
+        designation: item.designation || 'Employee',
+      });
+      created.push(row);
+      seenPhones[phone] = true;
+    } catch (err) {
+      skipped.push({ row: index + 1, phone: phone, reason: String(err.message || err) });
+    }
+  });
+  return { created: created, skipped: skipped, count: created.length };
+}
+
 function employeesUpdate(args) {
   var idx = findRowIndex_(TAB.EMPLOYEES, 'id', args.emp_id);
   if (!idx) return null;

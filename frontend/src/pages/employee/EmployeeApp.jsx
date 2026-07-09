@@ -33,7 +33,7 @@ export default function EmployeeApp() {
   const [tab, setTab] = useState('mark')
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <div className="app-shell">
       <div className="screen">
         {tab === 'mark' && <MarkAttendance />}
         {tab === 'history' && <MyAttendance />}

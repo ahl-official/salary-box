@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List
 from models.sheets import EmployeeSheet, BranchSheet, DeptSheet
 from utils.auth import get_current_user, require_admin
 
@@ -13,6 +13,18 @@ class EmployeeCreate(BaseModel):
     department: Optional[str] = None
     branch: Optional[str] = None
     designation: Optional[str] = None
+
+class EmployeeBulkRow(BaseModel):
+    name: str
+    phone: str
+    role: str = "employee"
+    department: Optional[str] = "General"
+    branch: Optional[str] = None
+    designation: Optional[str] = "Employee"
+
+class EmployeeBulkImport(BaseModel):
+    employees: List[EmployeeBulkRow]
+    default_branch: Optional[str] = None
 
 class EmployeeUpdate(BaseModel):
     name: Optional[str] = None
@@ -50,6 +62,21 @@ def get_employee(emp_id: int, current_user: dict = Depends(get_current_user)):
     if not emp:
         raise HTTPException(status_code=404, detail="Not found")
     return {**emp, "department_name": emp.get("department", ""), "branch_name": emp.get("branch", "")}
+
+@router.post("/bulk")
+def bulk_import_employees(body: EmployeeBulkImport, current_user: dict = Depends(require_admin)):
+    if not body.employees:
+        raise HTTPException(status_code=400, detail="No employees to import")
+    if len(body.employees) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 employees per upload")
+    rows = [e.dict() for e in body.employees]
+    result = EmployeeSheet.bulk_create(rows, default_branch=body.default_branch or "")
+    return {
+        "success": True,
+        "count": result.get("count", 0),
+        "created": result.get("created", []),
+        "skipped": result.get("skipped", []),
+    }
 
 @router.post("/")
 def create_employee(emp: EmployeeCreate, current_user: dict = Depends(require_admin)):
